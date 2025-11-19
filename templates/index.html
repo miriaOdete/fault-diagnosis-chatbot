@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>CHATBOT – DIAGNÓSTICO DE FALHAS</title>
+  <style>
+    :root{
+      --bg:#0f1115; --bg-soft:#151922; --panel:#1b2130;
+      --text:#e9edf4; --muted:#a6b0c2; --border:#2a3244; --chip:#202737;
+      --accent:#3a8bfd; --accent-strong:#2c73d2;
+      --user-bubble:#222a3b; --bot-bubble:#171d29;
+      --shadow:0 8px 30px rgba(0,0,0,.35); --radius:14px;
+      --tap:44px; --maxw:980px;
+    }
+    [data-theme="light"]{
+      --bg:#eef1f6; --bg-soft:#f6f8fc; --panel:#ffffff; --text:#111827;
+      --muted:#5b6475; --border:#e5e7ef; --chip:#eef2fb;
+      --accent:#2f6fed; --accent-strong:#265ad0;
+      --user-bubble:#e9efff; --bot-bubble:#ffffff;
+      --shadow:0 10px 25px rgba(16,24,40,.08);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial;
+      color:var(--text);
+      background: var(--bg) url('/static/fundo.png') no-repeat center center fixed;
+      background-size: cover;
+      background-blend-mode: overlay;
+    }
+
+    /* Cabeçalho */
+    header{
+      position:sticky; top:0; z-index:10;
+      background: linear-gradient(180deg, rgba(0,0,0,.25), transparent), var(--bg-soft);
+      border-bottom:1px solid var(--border); backdrop-filter: blur(6px);
+    }
+    .bar{
+      max-width:var(--maxw); margin:0 auto; padding:12px 16px;
+      display:flex; align-items:center; justify-content:center; position:relative;
+    }
+    .brand{display:flex; align-items:center; gap:12px}
+    .logo{width:60px; height:60px; object-fit:contain; filter:drop-shadow(0 2px 8px rgba(0,0,0,.3))}
+    .title{margin:0; letter-spacing:1.8px; font-weight:800; text-transform:uppercase; font-size:18px; white-space:nowrap}
+    .controls{position:absolute; right:12px; top:50%; transform:translateY(-50%); display:flex; gap:8px}
+    .iconbtn{min-height:var(--tap); border:1px solid var(--border); background:var(--panel); color:var(--text);
+      border-radius:10px; padding:8px 10px; cursor:pointer; font-size:14px}
+    .iconbtn:hover{border-color:var(--accent)}
+    .theme-dot{display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--accent); margin-left:6px}
+
+    /* Container do chat */
+    .wrap{
+      max-width:var(--maxw); margin:0 auto; padding:12px 14px;
+      display:flex; flex-direction:column; min-height:calc(100vh - 70px);
+      position:relative;
+    }
+
+    /* ===== Ilustração decorativa ===== */
+    .hero-illus{
+      position:absolute; right:-30px; bottom:100px; z-index:0;
+      width: 380px; max-width:45vw; opacity:.22;
+      filter: saturate(1.05) drop-shadow(0 12px 30px rgba(0,0,0,.35)) blur(.2px);
+      pointer-events:none; user-select:none;
+      transition: opacity .25s ease;
+    }
+    [data-theme="light"] .hero-illus{ opacity:.18; }
+    @media (max-width: 520px){ .hero-illus{ display:none } }
+
+    .chat{
+      flex:1; overflow:auto; padding:8px 2px 12px;
+      display:flex; flex-direction:column; gap:12px; scroll-behavior:smooth; z-index:1;
+    }
+
+    /* Mensagens */
+    .row{display:flex; gap:10px; align-items:flex-start}
+    .row.user{justify-content:flex-end}
+    .avatar{
+      width:32px; height:32px; border-radius:10px; background:var(--chip);
+      display:flex; align-items:center; justify-content:center;
+      color:#fff; font-weight:700; border:1px solid var(--border); flex:0 0 auto;
+    }
+    .bubble{
+      max-width:82%; padding:10px 12px; border-radius:var(--radius);
+      box-shadow:var(--shadow); border:1px solid var(--border);
+      word-wrap:break-word; white-space:pre-wrap; line-height:1.55;
+      animation:fadeIn .15s ease-out; font-size:15.5px; z-index:1;
+      background:var(--bot-bubble);
+    }
+    .user .bubble{ background:var(--user-bubble) }
+    .bubble .actions{margin-top:10px; display:flex; gap:8px; flex-wrap:wrap}
+
+    /* Chips */
+    .chip{
+      background:var(--chip); color:var(--text); border:1px solid var(--border);
+      border-radius:999px; padding:10px 14px; cursor:pointer; font-size:14px; min-height:var(--tap);
+    }
+    .chip:hover{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(58,139,253,.15) }
+
+    /* Área de entrada */
+    .composer{
+      display:flex; gap:8px; padding:10px 8px; margin-top:10px; border-top:1px solid var(--border);
+      position:sticky; bottom:0; background:linear-gradient(180deg, transparent, var(--bg-soft) 30%);
+      padding-bottom:calc(10px + env(safe-area-inset-bottom));
+      z-index:2;
+    }
+    .field{flex:1; background:var(--panel); border:1px solid var(--border); border-radius:14px; display:flex; align-items:center; padding:4px 6px}
+    .field input{flex:1; border:none; outline:none; background:transparent; color:var(--text); font-size:16px; padding:12px; min-height:var(--tap)}
+    .send{background:var(--accent); color:#fff; border:none; border-radius:12px; padding:12px 16px; font-weight:700; cursor:pointer;
+      box-shadow:0 6px 18px rgba(58,139,253,.35); min-height:var(--tap)}
+    .send:hover{ background:var(--accent-strong) }
+
+    /* Digitando… */
+    .typing{display:inline-flex; gap:6px; align-items:center}
+    .dot{width:7px;height:7px;border-radius:50%; background:#9bb5ff; opacity:.7; animation:blink 1.2s infinite}
+    .dot:nth-child(2){animation-delay:.2s}.dot:nth-child(3){animation-delay:.4s}
+    @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+    @keyframes fadeIn{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
+
+    /* Toasts */
+    .toast{
+      position:fixed; left:50%; transform:translateX(-50%);
+      bottom:calc(18px + env(safe-area-inset-bottom));
+      background:var(--panel); border:1px solid var(--border); color:var(--text);
+      padding:10px 14px; border-radius:12px; box-shadow:var(--shadow);
+      opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; max-width:90vw;
+    }
+    .toast.show{opacity:1; transform:translate(-50%, -6px)}
+    .muted{color:var(--muted)}
+    .kbd{padding:2px 6px;border:1px solid var(--border);border-radius:6px;background:var(--chip)}
+    a{color:var(--accent)} a:hover{text-decoration:underline}
+    .bubble h4{margin:0 0 8px 0} .bubble ul{margin:6px 0 0 18px} .bubble li{margin:6px 0}
+    .bubble b,strong{font-weight:700} .bubble code{background:rgba(255,255,255,.07); padding:2px 6px; border-radius:6px}
+
+    /* Responsivo */
+    @media (max-width: 768px){
+      .logo{width:36px;height:36px} .title{font-size:16px}
+      .wrap{padding:10px 12px} .bubble{max-width:90%; font-size:15px}
+      .avatar{width:30px;height:30px} .send{padding:12px 14px} .chip{padding:10px 12px}
+      .hero-illus{ right:-10px; width:300px; bottom:90px }
+    }
+    @media (max-width: 420px){
+      :root{ --radius:12px }
+      .logo{width:30px;height:30px} .title{font-size:15px; letter-spacing:1.3px}
+      .wrap{padding:8px 10px} .chat{gap:10px}
+      .avatar{width:28px;height:28px; border-radius:8px}
+      .bubble{max-width:96%; padding:10px 11px; font-size:14.5px}
+      .chip{font-size:13.5px} .iconbtn{display:none}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div class="brand">
+        <img src="/static/logo.png" alt="Logo" class="logo" />
+        <h1 class="title">CHATBOT – DIAGNÓSTICO DE FALHAS</h1>
+      </div>
+      <div class="controls">
+        <button class="iconbtn" id="themeBtn" title="Alternar tema">
+          Tema <span class="theme-dot"></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <img src="/static/hero-manutencao.png" alt="" class="hero-illus" aria-hidden="true" loading="lazy" />
+    <section id="chat" class="chat" role="log" aria-live="polite" aria-label="Mensagens do chat"></section>
+    <div class="composer" role="form" aria-label="Enviar mensagem">
+      <div class="field">
+        <input id="msg" type="text" placeholder="Descreva o problema ou digite palavras-chave…" autocomplete="off" inputmode="text" />
+        <span class="muted" title="Atalho: Enter"><span class="kbd">Enter</span></span>
+      </div>
+      <button class="send" id="sendBtn" aria-label="Enviar mensagem">Enviar</button>
+    </div>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const API_URL = "/perguntar";
+    const AVATAR_BOT = "🤖";
+    const AVATAR_USER = "👤";
+
+    let sessionId = null;
+    let typingEl = null;
+
+    const $ = s => document.querySelector(s);
+    const chat = $("#chat"), input = $("#msg"), toast = $("#toast"), themeBtn = $("#themeBtn");
+
+    function showToast(msg){ toast.textContent = msg; toast.classList.add("show"); setTimeout(()=>toast.classList.remove("show"), 2200); }
+    function ensureScroll(){ chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" }); }
+    function sanitize(t){ return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>"); }
+    function renderMarkdown(text){
+      let t = sanitize(text);
+      t = t.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
+      if (/^- /m.test(text)){ t = t.replace(/(?:^|\n)- (.*?)(?=\n|$)/g,(m,i)=>`\n<li>${sanitize(i)}</li>`); t = t.replace(/(<li>.*<\/li>)/gs,"<ul>$1</ul>"); }
+      return t;
+    }
+
+    function bubble(message, who="bot", options=null){
+      const row = document.createElement("div"); row.className = `row ${who}`;
+      const av = document.createElement("div"); av.className = "avatar"; av.textContent = who==="bot"? "🤖":"👤";
+      const b = document.createElement("div"); b.className = "bubble"; b.innerHTML = renderMarkdown(message||"");
+      if (Array.isArray(options) && options.length){
+        const actions = document.createElement("div"); actions.className = "actions";
+        options.forEach(opt=>{
+          const btn = document.createElement("button");
+          btn.className = "chip"; btn.type = "button"; btn.textContent = opt;
+          btn.addEventListener("click", ()=> send(opt, true), {passive:true});
+          actions.appendChild(btn);
+        });
+        b.appendChild(actions);
+      }
+      if (who==="bot"){ row.appendChild(av); row.appendChild(b); } else { row.appendChild(b); row.appendChild(av); }
+      chat.appendChild(row); ensureScroll();
+    }
+
+    function showTyping(){
+      const row = document.createElement("div"); row.className = "row bot";
+      const av = document.createElement("div"); av.className = "avatar"; av.textContent = "🤖";
+      const b = document.createElement("div"); b.className = "bubble";
+      b.innerHTML = `<span class="typing" aria-label="Digitando"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>`;
+      row.appendChild(av); row.appendChild(b); chat.appendChild(row); typingEl = row; ensureScroll();
+    }
+    function hideTyping(){ if (typingEl) typingEl.remove(); typingEl=null; }
+
+    async function send(text, isOption=false){
+      const content = (text ?? input.value).trim(); if (!content) return;
+      bubble(content, "user");
+      input.value = ""; showTyping();
+      try{
+        const resp = await fetch(API_URL,{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ pergunta: content, session_id: sessionId, is_option: !!isOption })
+        });
+        const data = await resp.json(); hideTyping();
+        if (data.session_id) sessionId = data.session_id;
+        if (!resp.ok){ bubble("Desculpe, ocorreu um erro ao processar sua solicitação.", "bot"); return; }
+        bubble(data.resposta || "OK.", "bot", data.options || null);
+      }catch(e){ hideTyping(); bubble("Não foi possível conectar ao servidor. Verifique a rede.", "bot"); }
+    }
+
+    $("#sendBtn").addEventListener("click", ()=> send());
+    input.addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); send(); } });
+
+    themeBtn?.addEventListener("click", ()=>{
+      const root = document.documentElement, current = root.getAttribute("data-theme")||"dark", next = current==="dark"?"light":"dark";
+      root.setAttribute("data-theme", next);
+      const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.setAttribute("content", next==="dark" ? "#0f1115" : "#eef1f6");
+    });
+
+    window.addEventListener("load", ()=>{
+      bubble("Olá! Descreva o problema ou toque nas opções que eu sugerir. **Dica:** poucas palavras-chave já ajudam.", "bot");
+      input.focus();
+    }, {once:true});
+  </script>
+</body>
+</html>

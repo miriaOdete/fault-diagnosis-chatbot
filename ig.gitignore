@@ -1,0 +1,9 @@
+# Ignorar ambiente virtual
+venv/
+
+# Ignorar arquivos compilados
+__pycache__/
+*.pyc
+
+# Ignorar modelos grandes
+models/*.joblib
