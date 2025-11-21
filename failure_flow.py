@@ -9,8 +9,8 @@ from sklearn.neighbors import NearestNeighbors
 from joblib import dump, load
 from rapidfuzz import fuzz, process, distance
 
-import torch
 from sentence_transformers import SentenceTransformer, util
+import torch
 
 try:
     from spellchecker import SpellChecker
@@ -18,13 +18,12 @@ except ImportError:
     SpellChecker = None
 
 PT_STOPWORDS = {
-    "a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "no", "na", "nos", "nas",
-    "em", "para", "por", "com", "sem", "sobre", "entre", "e", "ou", "mas", "que", "se", "ao",
-    "à", "às", "aos", "é", "ser", "estar", "ter", "haver", "foi", "está", "são", "tá", "tem",
-    "têm", "já", "não", "sim", "há", "quando", "onde", "como", "qual", "quais", "porque",
-    "isso", "isto", "aquilo", "essa", "esse", "devido", "pela", "pelas", "pelo", "pelos"
+    "a","o","as","os","um","uma","de","do","da","dos","das","no","na","nos","nas",
+    "em","para","por","com","sem","sobre","entre","e","ou","mas","que","se","ao",
+    "à","às","aos","é","ser","estar","ter","haver","foi","está","são","tá","tem",
+    "têm","já","não","sim","há","quando","onde","como","qual","quais","porque",
+    "isso","isto","aquilo","essa","esse","devido","pela","pelas","pelo","pelos"
 }
-
 
 def _normalize(s: str) -> str:
     s = str(s)
@@ -34,28 +33,20 @@ def _normalize(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip().lower()
     return s
 
-
 def _tokens(text: str) -> List[str]:
     t = _normalize(text)
     return [w for w in t.split() if len(w) >= 3 and w not in PT_STOPWORDS]
 
-
 PATTERNS = [
     (r"\bfalta de (.+)", lambda g: f"Você percebeu falta de {g}?"),
     (r"\bindisponibilidade de (.+)", lambda g: f"Há indisponibilidade de {g}?"),
-    (
-        r"\bsensor(es)? de ([\w\s]+) (defeituoso|com falha|com problema|instável|instavel)",
-        lambda g1, g2, g3: f"O sensor de {g2} está {g3.replace('instavel', 'instável')}?"
-    ),
-    (
-        r"\bsensor(es)? (defeituoso|com falha|com problema|instável|instavel)",
-        lambda g1, g2: f"Algum sensor está {g2.replace('instavel', 'instável')}?"
-    ),
+    (r"\bsensor(es)? de ([\w\s]+) (defeituoso|com falha|com problema|instável|instavel)",
+     lambda g1, g2, g3: f"O sensor de {g2} está {g3.replace('instavel','instável')}?"),
+    (r"\bsensor(es)? (defeituoso|com falha|com problema|instável|instavel)",
+     lambda g1, g2: f"Algum sensor está {g2.replace('instavel','instável')}?"),
     (r"\bvazamento(s)?( de)? ([\w\s]+)?", lambda *_g: "Existe vazamento (óleo, ar, fluido) no ponto afetado?"),
-    (
-        r"\b(entupimento|obstrucao|obstrução) (do|da|de)? ([\w\s]+)?",
-        lambda *_g: "O componente ou linha apresenta entupimento/obstrução?"
-    ),
+    (r"\b(entupimento|obstrucao|obstrução) (do|da|de)? ([\w\s]+)?",
+     lambda *_g: "O componente ou linha apresenta entupimento/obstrução?"),
     (r"\b(desalinhamento|alinhamento incorreto)([\w\s]*)",
      lambda *_g: "Há desalinhamento aparente entre os componentes?"),
     (r"\b(folga|folgas?) (excessiva|excessivas)?([\w\s]*)",
@@ -68,31 +59,25 @@ PATTERNS = [
      lambda *_g: "A temperatura do conjunto está acima do normal?"),
     (r"\b(baixa pressao|pressao baixa|alta pressao|pressao alta)([\w\s]*)",
      lambda *_g: "A leitura de pressão está fora do especificado?"),
-    (
-        r"\b(cabo|conector|fiação|fios?)([\w\s]*) (solto|danificado|quebrado|com folga)",
-        lambda *_g: "Cabos ou conectores estão soltos ou danificados?"
-    ),
+    (r"\b(cabo|conector|fiação|fios?)([\w\s]*) (solto|danificado|quebrado|com folga)",
+     lambda *_g: "Cabos ou conectores estão soltos ou danificados?"),
     (r"\b(contaminacao|contaminação|sujeira|impurezas)([\w\s]*)",
      lambda *_g: "Foi observada contaminação ou sujeira no sistema?"),
     (r"\b(desgaste|desgastado|desgastes)([\w\s]*)",
      lambda *_g: "Há desgaste aparente no componente?"),
-    (
-        r"\b(software|configuracao|configuração|parametrizacao|parametrização)([\w\s]*)",
-        lambda *_g: "Pode haver erro de software ou configuração incorreta?"
-    ),
+    (r"\b(software|configuracao|configuração|parametrizacao|parametrização)([\w\s]*)",
+     lambda *_g: "Pode haver erro de software ou configuração incorreta?"),
     (r"\b(alimentacao|alimentação|energia|tensao|tensão)([\w\s]*)",
      lambda *_g: "Há problema de alimentação/energia?"),
     (r"\b(lubrificacao|lubrificação) (insuficiente|inadequada|ausente)",
      lambda *_g: "A lubrificação está ausente ou insuficiente?")
 ]
 
-
 def _clean_for_question(txt: str) -> str:
     t = str(txt).strip().rstrip(".;,:- ")
     if not t:
         return ""
     return t[0].upper() + t[1:]
-
 
 def cause_to_question(cause_text: str) -> str:
     raw = str(cause_text).strip()
@@ -114,7 +99,6 @@ def cause_to_question(cause_text: str) -> str:
         q = f"Você observou {base[0].lower() + base[1:]}?"
     return _clean_for_question(q)
 
-
 class FailureFlowEngine:
     def __init__(
         self,
@@ -122,7 +106,7 @@ class FailureFlowEngine:
         sheet: str = "Sheet1",
         model_dir: str = "models",
         enable_spellcheck: bool = True,
-        custom_vocab_path: str = "custom_vocab.txt"
+        custom_vocab_path: str = "custom_vocab.txt",
     ):
         self.excel_path = excel_path
         self.sheet = sheet
@@ -142,14 +126,14 @@ class FailureFlowEngine:
         self.domain_vocab: set[str] = set()
         self.user_vocab: set[str] = set()
 
+        self.embed_model: Optional[SentenceTransformer] = None
+        self.modos_textos: List[str] = []
+        self.modos_emb = None
+
         if os.path.exists(self.model_path) and os.path.exists(self.base_csv):
             self._load()
         else:
             self._fit_from_excel()
-
-        
-        self.embed_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-        self._build_semantic_index()
 
         if self.enable_spellcheck:
             try:
@@ -160,30 +144,36 @@ class FailureFlowEngine:
             self._build_domain_vocab_selective()
             self._load_user_vocab()
 
-    
-    def _build_semantic_index(self):
-        self.modos_textos: List[str] = list(self.modes_unique or [])
-        if not self.modos_textos:
-            self.modos_emb = None
-            return
-        self.modos_emb = self.embed_model.encode(
-            self.modos_textos,
-            convert_to_tensor=True
-        )
+        self._build_embedding_index()
 
-    
+    # ----------------- índice semântico -----------------
+    def _build_embedding_index(self):
+        try:
+            self.embed_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+            self.modos_textos = list(self.modes_unique) if hasattr(self, "modes_unique") else []
+            if self.modos_textos:
+                self.modos_emb = self.embed_model.encode(
+                    self.modos_textos, convert_to_tensor=True
+                )
+            else:
+                self.modos_emb = None
+        except Exception:
+            self.embed_model = None
+            self.modos_textos = []
+            self.modos_emb = None
+
+    # --------- vocabulário: seletivo por frequência ----------
     def _split_words(self, text: str) -> List[str]:
         return re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ]+", str(text))
 
     def _build_domain_vocab_selective(self, min_freq: int = 3):
         freq: Dict[str, int] = {}
         cols = [c for c in [self.col_mode, self.col_effect, self.col_cause, self.col_action] if c]
-        for col in cols:
-            for val in self.df[col].astype(str).tolist():
+        for c in cols:
+            for val in self.df[c].astype(str).tolist():
                 for w in self._split_words(val):
                     freq[w] = freq.get(w, 0) + 1
-
-        wl: set[str] = set()
+        wl = set()
         for w, n in freq.items():
             if (
                 w.isupper()
@@ -209,7 +199,7 @@ class FailureFlowEngine:
             except Exception:
                 pass
 
-    
+    # ----------------- treino / load -----------------
     def _pick_col_fuzzy(self, cols: List[str], candidates: List[str], min_score=70) -> Optional[str]:
         best_name, best_score = None, -1
         for col in cols:
@@ -222,6 +212,7 @@ class FailureFlowEngine:
     def _fit_from_excel(self):
         if not os.path.exists(self.excel_path):
             raise FileNotFoundError(f"Planilha não encontrada: {self.excel_path}")
+
         df = pd.read_excel(self.excel_path, sheet_name=self.sheet).fillna("")
         cols = list(df.columns)
 
@@ -247,16 +238,13 @@ class FailureFlowEngine:
         self.df["_effect_n"] = df[self.col_effect].astype(str).map(_normalize)
 
         self.modes_unique = sorted(
-            df[self.col_mode].astype(str).dropna().unique(),
-            key=lambda x: _normalize(x)
+            df[self.col_mode].astype(str).dropna().unique(), key=lambda x: _normalize(x)
         )
 
-        
         self.vectorizer = TfidfVectorizer(ngram_range=(1, 2), strip_accents="unicode")
         X = self.vectorizer.fit_transform(self.modes_unique)
         self.nn = NearestNeighbors(
-            n_neighbors=min(5, len(self.modes_unique)),
-            metric="cosine"
+            n_neighbors=min(5, len(self.modes_unique)), metric="cosine"
         ).fit(X)
 
         self.mode_effects: Dict[str, List[str]] = {}
@@ -264,7 +252,7 @@ class FailureFlowEngine:
             sel = self.df[self.df["_mode_n"] == _normalize(mode)]
             effs = sorted(
                 sel[self.col_effect].astype(str).dropna().unique(),
-                key=lambda x: _normalize(x)
+                key=lambda x: _normalize(x),
             )
             self.mode_effects[mode] = effs
 
@@ -280,7 +268,6 @@ class FailureFlowEngine:
             },
             self.model_path,
         )
-
         df.to_csv(self.base_csv, index=False, encoding="utf-8")
 
     def _load(self):
@@ -297,23 +284,23 @@ class FailureFlowEngine:
         self.df["_mode_n"] = self.df[self.col_mode].astype(str).map(_normalize)
         self.df["_effect_n"] = self.df[self.col_effect].astype(str).map(_normalize)
 
-        self.mode_effects: Dict[str, List[str]] = {}
+        self.mode_effects = {}
         for mode in self.modes_unique:
             sel = self.df[self.df["_mode_n"] == _normalize(mode)]
             effs = sorted(
                 sel[self.col_effect].astype(str).dropna().unique(),
-                key=lambda x: _normalize(x)
+                key=lambda x: _normalize(x),
             )
             self.mode_effects[mode] = effs
 
     def retrain(self):
         self._fit_from_excel()
-        self._build_semantic_index()
         if self.enable_spellcheck:
             self._build_domain_vocab_selective()
             self._load_user_vocab()
+        self._build_embedding_index()
 
-    
+    # --------------- funções semânticas (iguais ao print) ---------------
     def find_similar_modes(self, query: str, top_k: int = 5) -> List[str]:
         query = str(query).strip()
         if not query or not hasattr(self, "modos_textos"):
@@ -342,8 +329,9 @@ class FailureFlowEngine:
 
         return combined[:top_k]
 
-  
-    def pick_mode(self, user_text: str, limiar_ok: float = 0.35) -> Tuple[Optional[str], float, List[str]]:
+    def pick_mode(
+        self, user_text: str, limiar_ok: float = 0.35
+    ) -> Tuple[Optional[str], float, List[str]]:
         if not user_text or not hasattr(self, "modos_textos") or not self.modos_textos:
             return None, 0.0, []
 
@@ -353,7 +341,9 @@ class FailureFlowEngine:
             q_emb = self.embed_model.encode([query], convert_to_tensor=True)
             cos_scores = util.cos_sim(q_emb, self.modos_emb)[0]
             top_results = torch.topk(cos_scores, k=min(5, len(cos_scores)))
-            semanticos = [(self.modos_textos[i], float(cos_scores[i])) for i in top_results.indices]
+            semanticos = [
+                (self.modos_textos[i], float(cos_scores[i])) for i in top_results.indices
+            ]
         except Exception:
             semanticos = []
 
@@ -379,10 +369,10 @@ class FailureFlowEngine:
         suggestions = [m for m, _ in ranked[:3]]
 
         if best_score >= limiar_ok:
-            return best_mode, float(best_score), suggestions
-        return None, float(best_score), suggestions
+            return best_mode, best_score, suggestions
+        return None, best_score, suggestions
 
-   
+    # --------------- API restante ---------------
     def list_effects(self, mode: str) -> List[str]:
         return list(self.mode_effects.get(mode, []))
 
@@ -394,11 +384,10 @@ class FailureFlowEngine:
             return None
         return best[0] if best[1] >= 60 else None
 
-    
     def _causes_for(self, mode: str, effect: str) -> List[str]:
         sel = self.df[
-            (self.df["_mode_n"] == _normalize(mode)) &
-            (self.df["_effect_n"] == _normalize(effect))
+            (self.df["_mode_n"] == _normalize(mode))
+            & (self.df["_effect_n"] == _normalize(effect))
         ]
         if sel.empty:
             sel = self.df[self.df["_mode_n"] == _normalize(mode)]
@@ -412,12 +401,14 @@ class FailureFlowEngine:
                 out.append(c)
         return out
 
-    def _actions_for_causes(self, mode: str, effect: str, chosen_causes: List[str]) -> List[str]:
+    def _actions_for_causes(
+        self, mode: str, effect: str, chosen_causes: List[str]
+    ) -> List[str]:
         if not self.col_action:
             return []
         sel = self.df[
-            (self.df["_mode_n"] == _normalize(mode)) &
-            (self.df["_effect_n"] == _normalize(effect))
+            (self.df["_mode_n"] == _normalize(mode))
+            & (self.df["_effect_n"] == _normalize(effect))
         ]
         if sel.empty:
             sel = self.df[self.df["_mode_n"] == _normalize(mode)]
@@ -432,7 +423,10 @@ class FailureFlowEngine:
             if not cause_txt:
                 actions.append(act_txt)
                 continue
-            if any(_normalize(cause_txt) == cn or cn in _normalize(cause_txt) for cn in cause_norms):
+            if any(
+                _normalize(cause_txt) == cn or cn in _normalize(cause_txt)
+                for cn in cause_norms
+            ):
                 actions.append(act_txt)
 
         seen, out = set(), []
@@ -442,11 +436,8 @@ class FailureFlowEngine:
                 out.append(a)
         return out
 
-   
     def _should_skip_token(self, w: str) -> bool:
-        if not w:
-            return True
-        if len(w) <= 2:
+        if not w or len(w) <= 2:
             return True
         if any(ch.isdigit() for ch in w):
             return True
@@ -461,7 +452,9 @@ class FailureFlowEngine:
             return False
         if original.lower() == suggestion.lower():
             return False
-        return distance.Levenshtein.distance(original.lower(), suggestion.lower()) <= 2
+        return distance.Levenshtein.distance(
+            original.lower(), suggestion.lower()
+        ) <= 2
 
     def _correct_sentence(self, text: str) -> str:
         if not self.enable_spellcheck or self.spell is None:
@@ -469,25 +462,22 @@ class FailureFlowEngine:
 
         parts = re.findall(r"\w+|[^\w\s]", str(text))
         out: List[str] = []
-
         for p in parts:
             if re.fullmatch(r"[^\w\s]", p):
                 out.append(p)
                 continue
-
             w = p
-
             if (
-                w in self.user_vocab or w.lower() in self.user_vocab or
-                w in self.domain_vocab or w.lower() in self.domain_vocab
+                w in self.user_vocab
+                or w.lower() in self.user_vocab
+                or w in self.domain_vocab
+                or w.lower() in self.domain_vocab
             ):
                 out.append(w)
                 continue
-
             if self._should_skip_token(w):
                 out.append(w)
                 continue
-
             try:
                 if w.lower() in self.spell:
                     out.append(w)
@@ -518,11 +508,17 @@ class FailureFlowEngine:
     def _correct_list(self, lines: List[str]) -> List[str]:
         return [self._correct_sentence(s) for s in lines]
 
-   
     def build_questions(self, mode: str, effect: str, max_q: int = 5) -> Dict[str, Any]:
         causes = self._causes_for(mode, effect)
         if not causes:
-            return {"mode": mode, "effect": effect, "causes": [], "questions": [], "scores": [], "q_index": 0}
+            return {
+                "mode": mode,
+                "effect": effect,
+                "causes": [],
+                "questions": [],
+                "scores": [],
+                "q_index": 0,
+            }
 
         questions: List[Dict[str, Any]] = []
         used_texts: set[str] = set()
@@ -549,7 +545,7 @@ class FailureFlowEngine:
         return {
             "mode": mode,
             "effect": effect,
-            "causes": causes[:len(limited)],
+            "causes": causes[: len(limited)],
             "questions": limited,
             "scores": [0] * len(limited),
             "q_index": 0,
@@ -560,16 +556,19 @@ class FailureFlowEngine:
             return diag_state
 
         ans = (user_answer or "").strip().lower()
-        val = 1 if ans in ("sim", "s", "yes", "y", "ok") else 0 if ans in ("nao", "não", "n", "no") else None
+        val = (
+            1
+            if ans in ("sim", "s", "yes", "y", "ok")
+            else 0
+            if ans in ("nao", "não", "n", "no")
+            else None
+        )
         qidx = diag_state["q_index"]
 
         if qidx < len(diag_state["questions"]) and val is not None:
             covers = diag_state["questions"][qidx]["covers"]
             for i in covers:
-                if val == 1:
-                    diag_state["scores"][i] += 2
-                else:
-                    diag_state["scores"][i] -= 1
+                diag_state["scores"][i] += 2 if val == 1 else -1
 
         diag_state["q_index"] = min(qidx + 1, len(diag_state["questions"]))
         return diag_state
@@ -583,7 +582,9 @@ class FailureFlowEngine:
 
         idxs = sorted(range(len(causes)), key=lambda i: scores[i], reverse=True)
         top_idxs = idxs[:top_k]
-        chosen_causes = [causes[i] for i in top_idxs if scores[i] >= 0] or [causes[idxs[0]]]
+        chosen_causes = [causes[i] for i in top_idxs if scores[i] >= 0] or [
+            causes[idxs[0]]
+        ]
 
         mode = diag_state.get("mode", "")
         effect = diag_state.get("effect", "")
