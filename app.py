@@ -1,45 +1,59 @@
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import os, uuid, traceback, threading, time
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+
 from failure_flow import FailureFlowEngine
 
 EXCEL_PATH = "tabela_falhas_unificada.xlsx"
 EXCEL_SHEET = "Sheet1"
 HOST, PORT, DEBUG = "0.0.0.0", 5000, True
 
-app = Flask(__name__, template_folder="templates", static_folder="static", static_url_path="/static")
+app = Flask(
+    __name__,
+    template_folder="templates",
+    static_folder="static",
+    static_url_path="/static",
+)
 CORS(app)
 
 flow = None
 init_error = None
 retrain_lock = threading.Lock()
 
+
 def safe_retrain(max_retries=6, delay=1.5):
     global flow
-    for _ in range(max_retries):
+    for i in range(max_retries):
         try:
             with retrain_lock:
                 flow.retrain()
-            print("[RETRAIN] Modelo atualizado.")
+            print("[RETRAIN] Modelo atualizado com sucesso.")
             return True
         except PermissionError:
+            print(f"[RETRAIN] Arquivo bloqueado (tentativa {i+1}/{max_retries}). Aguardando {delay}s...")
             time.sleep(delay)
-        except Exception:
+        except Exception as e:
+            print("[RETRAIN] Falha:", type(e).__name__, e)
             return False
     return False
+
 
 class ExcelChangeHandler(FileSystemEventHandler):
     def on_modified(self, event):
         try:
             if event.is_directory:
                 return
-            if os.path.basename(event.src_path) == os.path.basename(EXCEL_PATH):
-                print(f"[WATCH] Alteração: {event.src_path}")
+            changed = os.path.abspath(event.src_path)
+            target = os.path.abspath(EXCEL_PATH)
+            if os.path.basename(changed) == os.path.basename(target):
+                print(f"[WATCH] Alteração detectada em: {changed}")
                 safe_retrain()
-        except Exception:
-            pass
+        except Exception as e:
+            print("[WATCH] Erro no watcher:", type(e).__name__, e)
+
 
 def start_watcher():
     observer = Observer()
@@ -50,26 +64,47 @@ def start_watcher():
     print(f"[WATCH] Observando: {watch_dir}\\{os.path.basename(EXCEL_PATH)}")
     return observer
 
+
 try:
     flow = FailureFlowEngine(excel_path=EXCEL_PATH, sheet=EXCEL_SHEET)
+    init_error = None
     start_watcher()
 except Exception as e:
     flow = None
     init_error = f"{type(e).__name__}: {e}"
+    print("[ERRO] Inicialização:", init_error)
 
 SESSIONS = {}
 
+
 def new_session():
     sid = str(uuid.uuid4())
-    SESSIONS[sid] = {"stage": "ASK_MODE", "mode": None, "effect": None, "diag": None, "last_options": [], "history": []}
+    SESSIONS[sid] = {
+        "stage": "ASK_MODE",
+        "mode": None,
+        "effect": None,
+        "diag": None,
+        "last_options": [],
+        "history": [],
+    }
     return sid
 
+
 def reset_session(sid):
-    SESSIONS[sid] = {"stage": "ASK_MODE", "mode": None, "effect": None, "diag": None, "last_options": [], "history": []}
+    SESSIONS[sid] = {
+        "stage": "ASK_MODE",
+        "mode": None,
+        "effect": None,
+        "diag": None,
+        "last_options": [],
+        "history": [],
+    }
+
 
 @app.get("/")
 def index():
     return render_template("index.html")
+
 
 @app.get("/health")
 def health():
@@ -82,13 +117,15 @@ def health():
     }
     return jsonify({"ok": ok, "error": init_error, "columns": cols})
 
+
 @app.post("/retrain")
 def retrain():
     try:
         ok = safe_retrain()
-        return jsonify({"ok": ok})
+        return jsonify({"ok": ok, "msg": "Modelo atualizado com sucesso." if ok else "Falha ao atualizar."})
     except Exception as e:
         return jsonify({"ok": False, "msg": f"{type(e).__name__}: {e}"}), 500
+
 
 @app.post("/perguntar")
 def perguntar():
@@ -108,7 +145,7 @@ def perguntar():
         sess = SESSIONS[sid]
 
         if not text:
-            return jsonify({"resposta": "Descreva o problema.", "session_id": sid})
+            return jsonify({"resposta": "Descreva o problema para começarmos.", "session_id": sid})
 
         if not is_option and sess["stage"] != "ASK_MODE":
             reset_session(sid)
@@ -120,63 +157,110 @@ def perguntar():
                 sess["mode"] = chosen
                 sess["stage"] = "ASK_EFFECT"
                 effects = flow.list_effects(chosen)
-                msg = f"Identifiquei o modo de falha: {chosen}\nSelecione o efeito:"
+                msg = f"Identifiquei o modo de falha: {chosen}\nSelecione o efeito de falha:"
                 sess["last_options"] = effects[:12]
-                return jsonify({"resposta": msg, "session_id": sid, "options": sess["last_options"]})
+                sess["history"] += [("user", text), ("bot", msg)]
+                return jsonify(
+                    {"resposta": msg, "session_id": sid, "options": sess["last_options"]}
+                )
 
-            mode, _, suggestions = flow.pick_mode(text)
+            mode, score, suggestions = flow.pick_mode(text)
             if mode:
                 sess["mode"] = mode
                 sess["stage"] = "ASK_EFFECT"
                 effects = flow.list_effects(mode)
-                msg = f"Identifiquei o modo de falha: {mode}\nSelecione o efeito:"
+                msg = f"Identifiquei o modo de falha: {mode}\nSelecione o efeito de falha:"
                 sess["last_options"] = effects[:12]
-                return jsonify({"resposta": msg, "session_id": sid, "options": sess["last_options"]})
-
-            opts = (suggestions or [])[:5]
-            sess["last_options"] = opts
-            return jsonify({"resposta": "Não identifiquei o modo. Você quis dizer:", "session_id": sid, "options": opts})
+                sess["history"] += [("user", text), ("bot", msg)]
+                return jsonify(
+                    {"resposta": msg, "session_id": sid, "options": sess["last_options"]}
+                )
+            else:
+                msg = "Não identifiquei uma correspondência exata de modo. Você quis dizer:"
+                opts = (suggestions or [])[:5]
+                sess["last_options"] = opts
+                sess["history"] += [("user", text), ("bot", msg)]
+                return jsonify({"resposta": msg, "session_id": sid, "options": opts})
 
         if sess["stage"] == "ASK_EFFECT":
             mode = sess["mode"]
             effect = flow.choose_from(text, flow.list_effects(mode)) or text
             sess["effect"] = effect
+
             diag = flow.build_questions(mode, effect, max_q=5)
             sess["diag"] = diag
 
             if not diag["questions"]:
                 result = flow.finalize(diag, top_k=3)
                 sess["stage"] = "DIAG_DONE"
+                sess["last_options"] = []
+                sess["history"] += [("user", text), ("bot", result)]
                 return jsonify({"resposta": result, "session_id": sid})
 
             q0 = diag["questions"][0]["text"]
             sess["stage"] = "DIAG_ASK"
             sess["last_options"] = ["Sim", "Não"]
+            sess["history"] += [("user", text), ("bot", q0)]
             return jsonify({"resposta": q0, "session_id": sid, "options": sess["last_options"]})
 
         if sess["stage"] == "DIAG_ASK":
-            diag = flow.answer_question(sess["diag"], text)
+            diag = sess["diag"]
+            diag = flow.answer_question(diag, text)
             sess["diag"] = diag
 
             if diag["q_index"] < len(diag["questions"]):
                 nxt = diag["questions"][diag["q_index"]]["text"]
                 sess["last_options"] = ["Sim", "Não"]
+                sess["history"] += [("user", text), ("bot", nxt)]
                 return jsonify({"resposta": nxt, "session_id": sid, "options": sess["last_options"]})
-
-            result = flow.finalize(diag, top_k=3)
-            sess["stage"] = "DIAG_DONE"
-            return jsonify({"resposta": result, "session_id": sid})
+            else:
+                result = flow.finalize(diag, top_k=3)
+                sess["stage"] = "DIAG_DONE"
+                sess["last_options"] = []
+                sess["history"] += [("user", text), ("bot", result)]
+                return jsonify({"resposta": result, "session_id": sid})
 
         if sess["stage"] == "DIAG_DONE":
             reset_session(sid)
-            return perguntar()
+            sess = SESSIONS[sid]
+
+            chosen = flow.choose_from(text, flow.modes_unique)
+            if chosen:
+                sess["mode"] = chosen
+                sess["stage"] = "ASK_EFFECT"
+                effects = flow.list_effects(chosen)
+                msg = f"Identifiquei o modo de falha: {chosen}\nSelecione o efeito de falha:"
+                sess["last_options"] = effects[:12]
+                sess["history"] += [("user", text), ("bot", msg)]
+                return jsonify(
+                    {"resposta": msg, "session_id": sid, "options": sess["last_options"]}
+                )
+
+            mode, score, suggestions = flow.pick_mode(text)
+            if mode:
+                sess["mode"] = mode
+                sess["stage"] = "ASK_EFFECT"
+                effects = flow.list_effects(mode)
+                msg = f"Identifiquei o modo de falha: {mode}\nSelecione o efeito de falha:"
+                sess["last_options"] = effects[:12]
+                sess["history"] += [("user", text), ("bot", msg)]
+                return jsonify(
+                    {"resposta": msg, "session_id": sid, "options": sess["last_options"]}
+                )
+            else:
+                msg = "Não identifiquei uma correspondência exata de modo. Você quis dizer:"
+                opts = (suggestions or [])[:5]
+                sess["last_options"] = opts
+                sess["history"] += [("user", text), ("bot", msg)]
+                return jsonify({"resposta": msg, "session_id": sid, "options": opts})
 
         reset_session(sid)
-        return jsonify({"resposta": "Descreva o problema.", "session_id": sid})
+        return jsonify({"resposta": "Descreva o problema para começarmos.", "session_id": sid})
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"resposta": f"Erro no servidor: {type(e).__name__}: {e}"}), 500
+
 
 if __name__ == "__main__":
     print("[BOOT] Iniciando Flask...")

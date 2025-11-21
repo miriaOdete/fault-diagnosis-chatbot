@@ -8,8 +8,10 @@ class DecisionTreeEngine:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Arquivo de árvore não encontrado: {path}")
 
-        df = pd.read_excel(path, sheet_name=sheet, dtype=str).fillna("")
+        df = pd.read_excel(path, sheet_name=sheet, dtype=str)
+        df = df.fillna("")
         self.df = df
+
         self.trees = {}
         self.keywords = {}
         self._index()
@@ -28,7 +30,7 @@ class DecisionTreeEngine:
                     "text": str(r.get("TEXT", "")).strip(),
                     "sol_q3": str(r.get("SOL_Q3", "")).strip(),
                     "sol_q4": str(r.get("SOL_Q4", "")).strip(),
-                    "options": []
+                    "options": [],
                 }
                 for i in range(1, 6):
                     lab = str(r.get(f"OPT{i}_LABEL", "")).strip()
@@ -62,7 +64,7 @@ class DecisionTreeEngine:
                 "kind": "LEAF",
                 "text": node.get("text", ""),
                 "solution_q3": node.get("sol_q3", ""),
-                "solution_q4": node.get("sol_q4", "")
+                "solution_q4": node.get("sol_q4", ""),
             }
 
         labels = [opt["label"] for opt in node["options"] if opt["label"]]
@@ -91,5 +93,5 @@ class DecisionTreeEngine:
             "text": node["text"],
             "options": labels,
             "next_node": next_id,
-            "chosen": chosen_label
+            "chosen": chosen_label,
         }
